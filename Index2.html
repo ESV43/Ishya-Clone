@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Room Booking</title>
+    <!-- Google Identity Services Library -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <style>
+        /* --- Global Styles (from previous answer, slightly adapted) --- */
+        :root {
+            --bg-dark: #0a0f2c; --bg-card: #12183a; --accent-gold: #D4AF37;
+            --text-light: #e0e0e0; --text-dark: #1a1a1a; --border-light: #4a4e69;
+            --font-main: 'Roboto', sans-serif;
+        }
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+        body { font-family: var(--font-main); background-color: var(--bg-dark); color: var(--text-light); margin: 0; padding: 20px; font-size: 16px; display: flex; flex-direction: column; align-items: center; }
+        .container { max-width: 1000px; width: 100%; padding: 20px; box-sizing: border-box; }
+        h1, h2, h3, h4, h5, h6 { margin-top: 0; font-weight: 500; }
+        hr.divider { border: none; border-top: 1px solid var(--border-light); margin: 20px 0; }
+        .button-primary { background-color: var(--accent-gold); color: var(--text-dark); border: none; padding: 12px 25px; border-radius: 5px; cursor: pointer; font-weight: 500; font-size: 1em; text-align: center; text-decoration: none; display: inline-block; }
+        .button-primary:hover { opacity: 0.9; }
+        .button-primary:disabled { background-color: #7d6720; cursor: not-allowed; }
+        .button-secondary { background-color: transparent; color: var(--accent-gold); border: 1px solid var(--accent-gold); padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: 500; text-align: center; }
+        .button-secondary:hover { background-color: rgba(212, 175, 55, 0.1); }
+        .button-danger { background-color: #dc3545; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; }
+        .hidden { display: none !important; }
+        #loadingSpinner { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 8px solid var(--border-light); border-top: 8px solid var(--accent-gold); border-radius: 50%; width: 60px; height: 60px; animation: spin 1s linear infinite; z-index: 10000; }
+        @keyframes spin { 0% { transform: translate(-50%, -50%) rotate(0deg); } 100% { transform: translate(-50%, -50%) rotate(360deg); } }
+        .message-area { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); min-width: 300px; max-width: 80%; z-index: 10001; margin: 15px 0; padding: 10px 15px; border-radius: 5px; text-align: center; box-shadow: 0 2px 10px rgba(0,0,0,0.2); }
+        .message-success { background-color: #28a745; color: white; }
+        .message-error { background-color: #dc3545; color: white; }
+        .message-info { background-color: #17a2b8; color: white; }
+
+        /* --- Auth Section --- */
+        #authSection { text-align: center; }
+        #googleSignInButtonContainer { display: flex; justify-content: center; align-items: center; padding: 20px; margin-top: 10px; }
+        .user-profile { display: flex; align-items: center; justify-content: center; gap: 15px; padding: 10px; background-color: var(--bg-card); border-radius: 5px; margin: 0 auto 20px auto; max-width: 400px; }
+        .user-profile img { width: 40px; height: 40px; border-radius: 50%; }
+        .user-profile span { font-size: 0.9em; }
+
+        /* --- Screen Styles (Copied from previous answers, ensure they are complete) --- */
+        /* Booking Form Page */
+        .booking-form-page .page-header, .schedule-page .page-header.with-back { display: flex; align-items: center; margin-bottom: 30px; }
+        .back-link { color: var(--text-light); text-decoration: none; font-size: 1.2em; margin-right: 15px; cursor: pointer; }
+        .page-title { font-size: 2em; color: var(--text-light); font-weight: 500; }
+        .booking-form-layout, .schedule-layout { display: flex; gap: 40px; flex-wrap: wrap; }
+        .client-details, .date-time-selector { flex: 2; min-width: 300px; }
+        .booking-summary, .service-details-summary { flex: 1; min-width: 250px; }
+        .client-details h3, .booking-summary h3, .service-details-summary h3 { font-size: 1.4em; margin-bottom: 20px; color: var(--text-light); font-weight: 400; padding-bottom: 10px; border-bottom: 1px solid var(--border-light); }
+        .logged-in-info { background-color: var(--bg-card); padding: 15px; border-radius: 5px; margin-bottom: 25px; font-size: 0.9em; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; font-size: 0.9em; color: var(--text-light); }
+        .form-group input[type="text"], .form-group input[type="email"], .form-group input[type="tel"], .form-group input[type="number"], .form-group textarea { width: calc(100% - 22px); padding: 10px; background-color: transparent; border: 1px solid var(--border-light); border-radius: 5px; color: var(--text-light); font-size: 1em; }
+        .form-group input[type="email"][readonly] { background-color: #2a2f4c; cursor: not-allowed; }
+        .form-group textarea { min-height: 100px; resize: vertical; }
+        .form-group .phone-input-container { display: flex; align-items: center; }
+        .form-group .phone-input-container .flag { margin-right: 8px; font-size: 1.5em; }
+        .form-group .phone-input-container input[type="tel"] { flex-grow: 1; width: auto; }
+        .booking-summary .summary-item { margin-bottom: 10px; }
+        .booking-summary .summary-item strong { display: block; font-size: 1.1em; color: var(--text-light); }
+        .booking-summary .summary-item span { font-size: 0.9em; color: #aaa; }
+        .booking-summary .button-primary { width: 100%; margin-top: 20px; }
+
+        /* Schedule Page */
+        .schedule-page .page-header:not(.with-back) { text-align: center; margin-bottom: 40px; }
+        .schedule-page .page-title:not(h1.page-title) { font-size: 2.2em; color: var(--accent-gold); margin-bottom: 10px; } /* Specific for schedule title */
+        .schedule-page .page-subtitle { font-size: 1.1em; color: var(--text-light); }
+        .date-time-selector h4 { font-size: 1.2em; margin-bottom: 10px; color: var(--text-light); font-weight: 400; }
+        .date-time-selector .timezone-info { font-size: 0.9em; color: var(--accent-gold); margin-bottom: 20px; }
+        .calendar-container { margin-bottom: 30px; }
+        .calendar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .calendar-header .nav-arrow { font-size: 1.5em; cursor: pointer; color: var(--text-light); user-select: none;}
+        .calendar-header .month-year { font-size: 1.2em; font-weight: 500; }
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; text-align: center; }
+        .calendar-grid .day-name, .calendar-grid .day-cell { padding: 8px; font-size: 0.9em; }
+        .calendar-grid .day-name { color: #aaa; font-weight: 500; }
+        .calendar-grid .day-cell { cursor: pointer; border-radius: 50%; transition: background-color 0.2s; }
+        .calendar-grid .day-cell:not(.empty):not(.past):not(.selected):hover { background-color: var(--bg-card); }
+        .calendar-grid .day-cell.selected { background-color: var(--accent-gold); color: var(--text-dark); font-weight: bold; }
+        .calendar-grid .day-cell.empty, .calendar-grid .day-cell.past { cursor: default; opacity: 0.4; }
+        .time-slots-container h4 { margin-bottom: 15px; }
+        .time-slots-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; }
+        .time-slot-button { background-color: transparent; border: 1px solid var(--border-light); color: var(--text-light); padding: 12px; border-radius: 5px; cursor: pointer; text-align: center; font-size: 0.95em; transition: background-color 0.2s, border-color 0.2s; }
+        .time-slot-button:hover:not(.selected):not(:disabled), .time-slot-button.selected { background-color: var(--accent-gold); color: var(--text-dark); border-color: var(--accent-gold); font-weight: 500; }
+        .time-slot-button:disabled { opacity: 0.5; cursor: not-allowed; background-color: var(--bg-card); color: #777; border-color: #555;}
+        .waitlist-prompt { background-color: var(--bg-card); padding: 20px; text-align: center; border-radius: 5px; margin-top: 30px; }
+        .waitlist-prompt p { margin: 0 0 10px 0; font-size: 0.95em; }
+        .waitlist-prompt .join-waitlist-link { color: var(--accent-gold); font-weight: 500; text-decoration: none; cursor: pointer; padding: 10px 15px; border: 1px solid var(--accent-gold); border-radius: 5px; display: inline-block; }
+        .waitlist-prompt .join-waitlist-link:hover { background-color: rgba(212, 175, 55, 0.1); }
+
+        /* Services Page */
+        .services-page .page-header { text-align: center; margin-bottom: 40px; }
+        .services-page .page-title { font-size: 2.2em; color: var(--accent-gold); }
+        .services-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 30px; }
+        .service-card { background-color: var(--bg-card); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+        .service-card img { width: 100%; height: 200px; object-fit: cover; }
+        .service-card-content { padding: 20px; flex-grow: 1; display: flex; flex-direction: column; justify-content: space-between; }
+        .service-card-content h3 { font-size: 1.5em; color: var(--text-light); margin-bottom: 10px; }
+        .service-card-content .duration { font-size: 0.9em; color: #aaa; margin-bottom: 20px; }
+        .service-card-content .button-secondary { width: 100%; }
+
+        /* My Bookings Section */
+        .my-bookings-section { margin-top: 40px; padding: 20px; background-color: var(--bg-card); border-radius: 8px;}
+        .my-bookings-section h2 { color: var(--accent-gold); margin-bottom: 20px; text-align: center; }
+        .booking-item { border: 1px solid var(--border-light); padding: 15px; margin-bottom: 15px; border-radius: 5px; background-color: #1c224a; }
+        .booking-item p { margin: 5px 0; line-height: 1.4; }
+        .booking-item strong { color: var(--accent-gold); }
+    </style>
+</head>
+<body>
+    <div id="loadingSpinner" class="hidden"></div>
+    <div id="messageArea" class="message-area hidden"></div>
+
+    <div class="container" id="authSection">
+        <div id="userProfileDisplay" class="hidden user-profile">
+            <img id="userProfilePic" src="" alt="User">
+            <span id="userProfileName"></span>
+            <button id="signOutButton" class="button-secondary">Sign Out</button>
+        </div>
+        <h1 style="text-align: center; color: var(--accent-gold);">Welcome to Room Booking!</h1>
+        <p id="signInPrompt" style="text-align: center;">Please sign in with your Google Account to continue.</p>
+        <div id="googleSignInButtonContainer">
+            <!-- GIS Button Rendered Here -->
+        </div>
+    </div>
+
+    <!-- Screen 3: Our Services (Initially hidden) -->
+    <div class="container services-page hidden" id="servicesPage">
+        <header class="page-header">
+            <h1 class="page-title">Our Services</h1>
+        </header>
+        <div class="services-grid">
+            <div class="service-card" data-service-name="Music Room" data-service-duration="30 min">
+                <img src="https://images.unsplash.com/photo-1511379938547-c1f69419868d?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8bXVzaWMlMjByb29tfGVufDB8fDB8fHww&auto=format&fit=crop&w=500&q=60" alt="Music Room">
+                <div class="service-card-content">
+                    <div><h3>Music Room Booking</h3><p class="duration">30 min</p></div>
+                    <button class="button-secondary book-service-btn">Book Now</button>
+                </div>
+            </div>
+            <div class="service-card" data-service-name="Dance Room" data-service-duration="30 min">
+                <img src="https://images.unsplash.com/photo-1534800891164-a056808151b5?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8NHx8ZGFuY2UlMjByb29tfGVufDB8fDB8fHww&auto=format&fit=crop&w=500&q=60" alt="Dance Room">
+                <div class="service-card-content">
+                    <div><h3>Dance Room Booking</h3><p class="duration">30 min</p></div>
+                    <button class="button-secondary book-service-btn">Book Now</button>
+                </div>
+            </div>
+            <div class="service-card" data-service-name="SRC Room" data-service-duration="30 min">
+                <img src="https://images.unsplash.com/photo-1580582932707-520aed937b7b?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8Mnx8bWVldGluZyUyMHJvb218ZW58MHx8MHx8fDA%3D&auto=format&fit=crop&w=500&q=60" alt="SRC Room">
+                <div class="service-card-content">
+                    <div><h3>SRC Room Booking</h3><p class="duration">30 min</p></div>
+                    <button class="button-secondary book-service-btn">Book Now</button>
+                </div>
+            </div>
+        </div>
+        <div class="my-bookings-section hidden" id="myBookingsSection">
+            <h2>My Bookings</h2>
+            <div id="userBookingsList"><p>Loading your bookings...</p></div>
+        </div>
+    </div>
+
+    <!-- Screen 2: Schedule your service (Initially hidden) -->
+    <div class="container schedule-page hidden" id="schedulePage">
+        <header class="page-header with-back">
+             <span class="back-link" onclick="showServicesPage()">< Back</span>
+            <h1 class="page-title" id="schedulePageTitle" style="margin-left: 20px;">Schedule your service</h1>
+        </header>
+        <p class="page-subtitle" style="text-align:center;">Check out our availability and book the date and time that works for you.</p>
+        <hr class="divider">
+        <div class="schedule-layout">
+            <div class="date-time-selector">
+                <h4>Select a Date and Time <span class="timezone-info">India Standard Time (IST)</span></h4>
+                <div class="calendar-container">
+                    <div class="calendar-header">
+                        <span class="nav-arrow" id="prevMonthBtn"><</span>
+                        <span class="month-year" id="monthYearLabel">Month Year</span>
+                        <span class="nav-arrow" id="nextMonthBtn">></span>
+                    </div>
+                    <div class="calendar-grid" id="calendarGrid"></div>
+                </div>
+                <hr class="divider">
+                <div class="time-slots-container">
+                    <h4 id="availabilityHeader">Availability for ...</h4>
+                    <div class="time-slots-grid" id="timeSlotsGrid"><p>Please select a date.</p></div>
+                </div>
+            </div>
+            <div class="service-details-summary booking-summary">
+                <h3>Service Details</h3>
+                <div class="summary-item"><strong id="summaryServiceName">Service</strong><span id="summarySelectedDateTime">Date & Time</span></div><hr class="divider">
+                <div class="summary-item"><span id="summaryServiceDetail1">Service Detail</span></div>
+                <div class="summary-item"><span id="summaryServiceDuration">Duration</span></div><hr class="divider">
+                <button class="button-primary" id="nextToBookingFormBtn" disabled>Next</button>
+                <div class="waitlist-prompt hidden" id="waitlistPromptSection">
+                    <p>The selected slot is unavailable. Join the waitlist?</p>
+                    <button class="join-waitlist-link" id="joinWaitlistBtn">Join Waitlist for this Slot</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Screen 1: Booking Form (Initially hidden) -->
+    <div class="container booking-form-page hidden" id="bookingFormPage">
+        <header class="page-header">
+            <span class="back-link" onclick="showSchedulePage()">< Back</span>
+            <h1 class="page-title" id="bookingFormPageTitle" style="margin-left: 20px;">Booking Form</h1>
+        </header>
+        <div class="booking-form-layout">
+            <div class="client-details">
+                <h3>Client Details</h3>
+                <div class="logged-in-info"><span id="loggedInEmailDisplay">Logged in as: ...</span></div>
+                <form id="actualBookingForm">
+                    <div class="form-group"><label for="teamHeadName">Team Head Name / Your Name *</label><input type="text" id="teamHeadName" required></div>
+                    <div class="form-group"><label for="email">Email *</label><input type="email" id="email" readonly required></div>
+                    <div class="form-group"><label for="phoneNumber">Phone Number</label><div class="phone-input-container"><span class="flag">🇮🇳</span><input type="tel" id="phoneNumber"></div></div>
+                    <div class="form-group"><label for="participants">Number of Participants? *</label><input type="number" id="participants" min="1" required></div>
+                    <div class="form-group"><label for="paragraph">Purpose / Additional Info</label><textarea id="paragraph"></textarea></div>
+                </form>
+            </div>
+            <div class="booking-summary">
+                <h3>Booking Details</h3>
+                <div class="summary-item"><strong id="finalSummaryServiceName">Service</strong><span id="finalSummarySelectedDateTime">Date & Time</span></div><hr class="divider">
+                <div class="summary-item"><span id="finalSummaryServiceDetail1">Detail</span></div>
+                <div class="summary-item"><span id="finalSummaryServiceDuration">Duration</span></div><hr class="divider">
+                <button class="button-primary" id="confirmBookingBtn">Book Now</button>
+                <button class="button-primary hidden" id="confirmWaitlistBtn">Confirm Join Waitlist</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Global State ---
+        let currentUser = null; // Stores { email, name, picture } from GIS
+        const GOOGLE_CLIENT_ID = '174102089619-fve6mksim12dqj97j101q8o3kjcu3g62.apps.googleusercontent.com'; // <-- PASTE YOUR CLIENT ID HERE
+        let selectedService = { name: null, duration: null };
+        let selectedDate = null; // YYYY-MM-DD
+        let selectedTimeSlot = null; // HH:MM (UTC from server, converted for display)
+        let currentCalendarDate = new Date();
+        let availabilityData = { available: [], all: [] };
+        let bookingOrWaitlistMode = 'booking';
+
+        // --- DOM Elements (condensed for brevity, ensure all are correct) ---
+        const 요소 = { // Using Korean for 'elements' as a short variable name example
+            loading: document.getElementById('loadingSpinner'), messageArea: document.getElementById('messageArea'),
+            auth: document.getElementById('authSection'), userProfile: document.getElementById('userProfileDisplay'),
+            userPic: document.getElementById('userProfilePic'), userName: document.getElementById('userProfileName'),
+            signOutBtn: document.getElementById('signOutButton'), signInPrompt: document.getElementById('signInPrompt'),
+            gisBtnContainer: document.getElementById('googleSignInButtonContainer'),
+            servicesPage: document.getElementById('servicesPage'), schedulePage: document.getElementById('schedulePage'),
+            bookingFormPage: document.getElementById('bookingFormPage'),
+            bookServiceBtns: document.querySelectorAll('.book-service-btn'), myBookingsSection: document.getElementById('myBookingsSection'),
+            userBookingsList: document.getElementById('userBookingsList'), schedulePageTitle: document.getElementById('schedulePageTitle'),
+            prevMonthBtn: document.getElementById('prevMonthBtn'), nextMonthBtn: document.getElementById('nextMonthBtn'),
+            monthYearLabel: document.getElementById('monthYearLabel'), calendarGrid: document.getElementById('calendarGrid'),
+            availabilityHeader: document.getElementById('availabilityHeader'), timeSlotsGrid: document.getElementById('timeSlotsGrid'),
+            summaryServiceName: document.getElementById('summaryServiceName'), summarySelectedDateTime: document.getElementById('summarySelectedDateTime'),
+            summaryServiceDetail1: document.getElementById('summaryServiceDetail1'), summaryServiceDuration: document.getElementById('summaryServiceDuration'),
+            nextToBookingFormBtn: document.getElementById('nextToBookingFormBtn'), waitlistPromptSection: document.getElementById('waitlistPromptSection'),
+            joinWaitlistBtn: document.getElementById('joinWaitlistBtn'), loggedInEmailDisplay: document.getElementById('loggedInEmailDisplay'),
+            bookingForm: document.getElementById('actualBookingForm'), bookingFormPageTitle: document.getElementById('bookingFormPageTitle'),
+            emailInput: document.getElementById('email'), teamHeadNameInput: document.getElementById('teamHeadName'),
+            phoneNumberInput: document.getElementById('phoneNumber'), participantsInput: document.getElementById('participants'),
+            paragraphInput: document.getElementById('paragraph'),
+            finalSummaryServiceName: document.getElementById('finalSummaryServiceName'), finalSummarySelectedDateTime: document.getElementById('finalSummarySelectedDateTime'),
+            finalSummaryServiceDetail1: document.getElementById('finalSummaryServiceDetail1'), finalSummaryServiceDuration: document.getElementById('finalSummaryServiceDuration'),
+            confirmBookingBtn: document.getElementById('confirmBookingBtn'), confirmWaitlistBtn: document.getElementById('confirmWaitlistBtn')
+        };
+
+        // --- Utility Functions ---
+        function showLoading(show) { 요소.loading.classList.toggle('hidden', !show); }
+        function showMessage(type, text, duration = 5000) {
+            요소.messageArea.textContent = text; 요소.messageArea.className = `message-area message-${type}`;
+            요소.messageArea.classList.remove('hidden');
+            if (duration > 0) setTimeout(() => 요소.messageArea.classList.add('hidden'), duration);
+        }
+        function switchView(viewName) {
+            ['auth', 'servicesPage', 'schedulePage', 'bookingFormPage'].forEach(id => {
+                const el = document.getElementById(id === 'auth' ? 'authSection' : id);
+                if(el) el.classList.add('hidden');
+            });
+            const currentViewEl = document.getElementById(viewName === 'auth' ? 'authSection' : viewName);
+            if(currentViewEl) currentViewEl.classList.remove('hidden');
+            window.scrollTo(0,0);
+        }
+        function formatDate(dateObj) { return dateObj ? `${dateObj.getFullYear()}-${('0'+(dateObj.getMonth()+1)).slice(-2)}-${('0'+dateObj.getDate()).slice(-2)}` : ''; }
+
+        // Convert UTC time string (HH:MM from server) to local display HH:MM AM/PM
+        function formatTimeForDisplay(utcTimeStr) {
+            if (!utcTimeStr) return '';
+            const [hoursUTC, minutesUTC] = utcTimeStr.split(':').map(Number);
+            // Create a date object for today, set UTC time, then get local time parts
+            const tempDate = new Date();
+            tempDate.setUTCHours(hoursUTC, minutesUTC, 0, 0);
+            const localHours = tempDate.getHours();
+            const localMinutes = tempDate.getMinutes();
+            const ampm = localHours >= 12 ? 'PM' : 'AM';
+            const displayHours = localHours % 12 || 12;
+            return `${displayHours}:${('0' + localMinutes).slice(-2)} ${ampm}`;
+        }
+        // Convert local time selection back to UTC for server (assuming server works in UTC for slots)
+        // This is complex if slots are not aligned to UTC hours/half-hours.
+        // For simplicity, if server provides UTC slots, we just send back the selected UTC slot string.
+
+        // --- GIS Initialization & Handling ---
+        window.onload = function () {
+            if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID === 'YOUR_GOOGLE_CLOUD_CLIENT_ID') {
+                showMessage('error', 'Google Client ID missing in HTML. App cannot initialize.', 0);
+                요소.signInPrompt.textContent = 'Application configuration error. Please contact admin.';
+                return;
+            }
+            google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleSignIn });
+            google.accounts.id.renderButton(요소.gisBtnContainer, { theme: "outline", size: "large", type: "standard", text: "signin_with" });
+            // google.accounts.id.prompt(); // Optional One Tap
+        };
+
+        function handleGoogleSignIn(response) {
+            showLoading(true);
+            google.script.run
+                .withSuccessHandler(backendRes => {
+                    showLoading(false);
+                    if (backendRes.success && backendRes.user) {
+                        currentUser = backendRes.user;
+                        updateUIAfterLogin();
+                        showMessage('success', `Signed in as ${currentUser.name || currentUser.email}`);
+                        showServicesPage();
+                    } else {
+                        showMessage('error', `Sign-in failed: ${backendRes.message || 'Unknown backend error'}`);
+                        currentUser = null; updateUIAfterLogout();
+                    }
+                })
+                .withFailureHandler(err => {
+                    showLoading(false);
+                    showMessage('error', `Sign-in verification error: ${err.message || String(err)}`);
+                    currentUser = null; updateUIAfterLogout();
+                })
+                .verifyGoogleIdToken(response.credential);
+        }
+
+        function updateUIAfterLogin() {
+            if (currentUser) {
+                요소.userPic.src = currentUser.picture || 'https://via.placeholder.com/40';
+                요소.userName.textContent = currentUser.name || currentUser.email;
+                요소.userProfile.classList.remove('hidden');
+                요소.signInPrompt.classList.add('hidden');
+                요소.gisBtnContainer.classList.add('hidden');
+                요소.emailInput.value = currentUser.email;
+                요소.loggedInEmailDisplay.textContent = `Logged in as: ${currentUser.email}`;
+                // Auth section remains visible for profile/logout
+            }
+        }
+        function handleSignOut() {
+            if (currentUser && google.accounts && google.accounts.id) {
+                 google.accounts.id.disableAutoSelect(); // Important to prevent immediate re-login
+                 google.accounts.id.revoke(currentUser.email, done => { console.log('User revoked token.'); });
+            }
+            currentUser = null; updateUIAfterLogout();
+            showMessage('info', 'You have been signed out.');
+            switchView('auth');
+            요소.myBookingsSection.classList.add('hidden');
+        }
+        function updateUIAfterLogout() {
+            요소.userProfile.classList.add('hidden');
+            요소.signInPrompt.classList.remove('hidden');
+            요소.gisBtnContainer.classList.remove('hidden');
+            if(google.accounts && google.accounts.id) { // Re-render button if it was removed or state changed
+                요소.gisBtnContainer.innerHTML = ''; // Clear previous button
+                google.accounts.id.renderButton(요소.gisBtnContainer, { theme: "outline", size: "large", type: "standard", text: "signin_with" });
+            }
+        }
+
+        // --- Page Navigation & State Reset ---
+        function showServicesPage() {
+            if (!currentUser) { switchView('auth'); return; }
+            resetScheduleState();
+            switchView('servicesPage');
+            loadUserBookings();
+            요소.myBookingsSection.classList.remove('hidden');
+        }
+        function showSchedulePage() { // From booking form back or waitlist back
+            if (!currentUser) { switchView('auth'); return; }
+            switchView('schedulePage');
+            // Re-render time slots if availabilityData exists, otherwise it shows "select date"
+            if (selectedDate && availabilityData.all.length > 0) renderTimeSlots();
+        }
+        function resetScheduleState() {
+            selectedService = { name: null, duration: null }; selectedDate = null; selectedTimeSlot = null;
+            availabilityData = { available: [], all: [] };
+            요소.nextToBookingFormBtn.disabled = true; 요소.waitlistPromptSection.classList.add('hidden');
+            요소.calendarGrid.innerHTML = ''; 요소.timeSlotsGrid.innerHTML = '<p>Please select a date.</p>';
+            요소.availabilityHeader.textContent = 'Availability for ...';
+        }
+
+        // --- Event Listeners (DOM Ready) ---
+        document.addEventListener('DOMContentLoaded', () => {
+            요소.signOutBtn.addEventListener('click', handleSignOut);
+            요소.bookServiceBtns.forEach(btn => btn.addEventListener('click', e => {
+                if (!currentUser) { showMessage('error', 'Please sign in to book.'); return; }
+                const card = e.target.closest('.service-card');
+                selectedService.name = card.dataset.serviceName;
+                selectedService.duration = card.dataset.serviceDuration;
+                요소.schedulePageTitle.textContent = `Schedule ${selectedService.name}`;
+                currentCalendarDate = new Date(); // Reset to current month
+                renderCalendar(); clearTimeSlots(); updateScheduleSummary();
+                switchView('schedulePage');
+            }));
+            요소.prevMonthBtn.addEventListener('click', () => changeMonth(-1));
+            요소.nextMonthBtn.addEventListener('click', () => changeMonth(1));
+            요소.nextToBookingFormBtn.addEventListener('click', () => { bookingOrWaitlistMode = 'booking'; showBookingForm(); });
+            요소.joinWaitlistBtn.addEventListener('click', () => { bookingOrWaitlistMode = 'waitlist'; showBookingForm(); });
+            요소.bookingForm.addEventListener('submit', e => e.preventDefault());
+            요소.confirmBookingBtn.addEventListener('click', handleFormSubmission);
+            요소.confirmWaitlistBtn.addEventListener('click', handleFormSubmission);
+        });
+
+        // --- Calendar Logic ---
+        function renderCalendar() { /* ... Same as previous complete HTML ... */
+            showLoading(true);
+            const year = currentCalendarDate.getFullYear();
+            const month = currentCalendarDate.getMonth();
+            요소.monthYearLabel.textContent = `${currentCalendarDate.toLocaleString('default', { month: 'long' })} ${year}`;
+            요소.calendarGrid.innerHTML = '';
+
+            const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            dayNames.forEach(name => {
+                const dayNameCell = document.createElement('div');
+                dayNameCell.classList.add('day-name'); dayNameCell.textContent = name;
+                요소.calendarGrid.appendChild(dayNameCell);
+            });
+
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const firstDayOfMonth = new Date(year, month, 1).getDay();
+            const today = new Date(); today.setHours(0,0,0,0);
+
+            for (let i = 0; i < firstDayOfMonth; i++) {
+                const emptyCell = document.createElement('div');
+                emptyCell.classList.add('day-cell', 'empty'); 요소.calendarGrid.appendChild(emptyCell);
+            }
+            for (let day = 1; day <= daysInMonth; day++) {
+                const cell = document.createElement('div'); cell.classList.add('day-cell');
+                cell.textContent = day; const cellDate = new Date(year, month, day); cellDate.setHours(0,0,0,0);
+                if (cellDate < today) { cell.classList.add('past'); }
+                else {
+                    cell.dataset.date = formatDate(cellDate);
+                    if (selectedDate === cell.dataset.date) cell.classList.add('selected');
+                    cell.addEventListener('click', handleDateSelect);
+                }
+                요소.calendarGrid.appendChild(cell);
+            }
+            showLoading(false);
+        }
+        function changeMonth(offset) { /* ... Same as previous complete HTML ... */
+            currentCalendarDate.setMonth(currentCalendarDate.getMonth() + offset);
+            selectedDate = null; selectedTimeSlot = null; clearTimeSlots(); updateScheduleSummary();
+            renderCalendar(); 요소.nextToBookingFormBtn.disabled = true; 요소.waitlistPromptSection.classList.add('hidden');
+        }
+        function handleDateSelect(event) { /* ... Same as previous complete HTML ... */
+            const clickedCell = event.target;
+            if (clickedCell.classList.contains('past') || clickedCell.classList.contains('empty')) return;
+            selectedDate = clickedCell.dataset.date; selectedTimeSlot = null;
+            요소.nextToBookingFormBtn.disabled = true; 요소.waitlistPromptSection.classList.add('hidden');
+            const prevSelected = 요소.calendarGrid.querySelector('.day-cell.selected');
+            if (prevSelected) prevSelected.classList.remove('selected');
+            clickedCell.classList.add('selected');
+            fetchAvailabilityForDate(); updateScheduleSummary();
+        }
+
+        // --- Time Slot Logic ---
+        function fetchAvailabilityForDate() { /* ... Same, ensure server call is correct ... */
+             if (!selectedDate || !selectedService.name) return; showLoading(true);
+            const dateObj = new Date(selectedDate + 'T00:00:00'); // Use T00:00:00 to avoid timezone issues if server expects just date
+            요소.availabilityHeader.textContent = `Availability for ${dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}`;
+            요소.timeSlotsGrid.innerHTML = '<p>Loading slots...</p>';
+            google.script.run
+                .withSuccessHandler(response => {
+                    showLoading(false);
+                    if (response.error) { showMessage('error', response.error); availabilityData = { available: [], all: [] }; }
+                    else { availabilityData = response; } // response is {available: [], all: []}
+                    renderTimeSlots();
+                })
+                .withFailureHandler(err => { showLoading(false); showMessage('error', `Availability fetch error: ${err.message || err}`); availabilityData = { available: [], all: [] }; renderTimeSlots();})
+                .getAvailability(selectedService.name, selectedDate);
+        }
+        function renderTimeSlots() { /* ... Same, but use formatTimeForDisplay ... */
+            요소.timeSlotsGrid.innerHTML = '';
+            if (!selectedDate) { 요소.timeSlotsGrid.innerHTML = '<p>Please select a date.</p>'; return; }
+            if (availabilityData.all.length === 0) { 요소.timeSlotsGrid.innerHTML = '<p>No slots configured for this day.</p>'; return; }
+
+            const now = new Date(); const todayDateStr = formatDate(now);
+
+            availabilityData.all.forEach(utcSlotStr => {
+                const slotButton = document.createElement('button');
+                slotButton.classList.add('time-slot-button');
+                slotButton.textContent = formatTimeForDisplay(utcSlotStr); // Display in local time
+                slotButton.dataset.utcTime = utcSlotStr; // Store the original UTC time from server
+
+                const isAvailable = availabilityData.available.includes(utcSlotStr);
+                if (!isAvailable) slotButton.disabled = true;
+
+                if (selectedDate === todayDateStr) { // Disable past slots for today
+                    const [slotHourUTC, slotMinuteUTC] = utcSlotStr.split(':').map(Number);
+                    const slotDateTime = new Date();
+                    slotDateTime.setUTCFullYear(parseInt(selectedDate.substring(0,4)), parseInt(selectedDate.substring(5,7))-1, parseInt(selectedDate.substring(8,10)));
+                    slotDateTime.setUTCHours(slotHourUTC, slotMinuteUTC, 0, 0);
+                    if (slotDateTime < now) slotButton.disabled = true;
+                }
+
+                if (selectedTimeSlot === utcSlotStr) slotButton.classList.add('selected');
+                slotButton.addEventListener('click', handleTimeSlotSelect);
+                요소.timeSlotsGrid.appendChild(slotButton);
+            });
+            if (요소.timeSlotsGrid.childElementCount === 0 || 요소.timeSlotsGrid.querySelectorAll('button:not(:disabled)').length === 0) {
+                 요소.timeSlotsGrid.innerHTML = '<p>No available slots for this date. Try the waitlist if a specific slot is desired.</p>';
+            }
+        }
+        function handleTimeSlotSelect(event) { /* ... Uses dataset.utcTime ... */
+            const clickedButton = event.target;
+            const timeToSelect = clickedButton.dataset.utcTime;
+
+            if (clickedButton.disabled && !availabilityData.available.includes(timeToSelect)) { // Booked slot, offer waitlist
+                selectedTimeSlot = timeToSelect;
+                요소.nextToBookingFormBtn.disabled = true; 요소.waitlistPromptSection.classList.remove('hidden');
+            } else if (!clickedButton.disabled) { // Available slot
+                selectedTimeSlot = timeToSelect;
+                요소.nextToBookingFormBtn.disabled = false; 요소.waitlistPromptSection.classList.add('hidden');
+            } else return; // Past slot or otherwise unselectable
+
+            const prevSelected = 요소.timeSlotsGrid.querySelector('.time-slot-button.selected');
+            if (prevSelected) prevSelected.classList.remove('selected');
+            clickedButton.classList.add('selected');
+            updateScheduleSummary();
+        }
+        function clearTimeSlots() { /* ... Same ... */
+            요소.availabilityHeader.textContent = 'Availability for ...';
+            요소.timeSlotsGrid.innerHTML = '<p>Please select a date to see availability.</p>';
+            availabilityData = { available: [], all: [] };
+        }
+
+        // --- Summary Update ---
+        function updateScheduleSummary() { /* ... Use formatTimeForDisplay for selectedTimeSlot ... */
+            요소.summaryServiceName.textContent = selectedService.name || 'Service';
+            요소.summaryServiceDetail1.textContent = selectedService.name || 'Detail';
+            요소.summaryServiceDuration.textContent = selectedService.duration || 'Duration';
+            if (selectedDate && selectedTimeSlot) {
+                const dateObj = new Date(selectedDate + 'T00:00:00'); // Use T00:00 to avoid TZ interpretation here
+                요소.summarySelectedDateTime.textContent = `${dateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} at ${formatTimeForDisplay(selectedTimeSlot)}`;
+            } else if (selectedDate) {
+                const dateObj = new Date(selectedDate + 'T00:00:00');
+                요소.summarySelectedDateTime.textContent = `${dateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}, select time`;
+            } else { 요소.summarySelectedDateTime.textContent = 'Select date and time'; }
+        }
+
+        // --- Booking Form Logic ---
+        function showBookingForm() { /* ... Check currentUser ... */
+            if (!currentUser || !selectedService.name || !selectedDate || !selectedTimeSlot) {
+                showMessage('error', 'Please complete service, date, and time selection.'); return;
+            }
+            switchView('bookingFormPage');
+            요소.emailInput.value = currentUser.email;
+            요소.loggedInEmailDisplay.textContent = `Logged in as: ${currentUser.email}`;
+            요소.bookingFormPageTitle.textContent = bookingOrWaitlistMode === 'waitlist' ? 'Join Waitlist Form' : 'Booking Form';
+            요소.finalSummaryServiceName.textContent = selectedService.name;
+            const dateObj = new Date(selectedDate + 'T00:00:00');
+            요소.finalSummarySelectedDateTime.textContent = `${dateObj.toLocaleDateString('en-US', {month: 'long', day: 'numeric', year: 'numeric'})} at ${formatTimeForDisplay(selectedTimeSlot)}`;
+            요소.finalSummaryServiceDetail1.textContent = selectedService.name;
+            요소.finalSummaryServiceDuration.textContent = selectedService.duration;
+            요소.confirmBookingBtn.classList.toggle('hidden', bookingOrWaitlistMode === 'waitlist');
+            요소.confirmWaitlistBtn.classList.toggle('hidden', bookingOrWaitlistMode === 'booking');
+            요소.bookingForm.reset(); 요소.emailInput.value = currentUser.email; // Re-set email
+        }
+        function handleFormSubmission() { /* ... Check currentUser, use currentUser.email ... */
+            if (!currentUser) { showMessage('error', 'Not signed in.'); return; }
+            if (!요소.bookingForm.checkValidity()) { 요소.bookingForm.reportValidity(); return; }
+            showLoading(true);
+            const details = {
+                userEmail: currentUser.email, teamHeadName: 요소.teamHeadNameInput.value,
+                phoneNumber: 요소.phoneNumberInput.value, participants: 요소.participantsInput.value,
+                paragraph: 요소.paragraphInput.value, service: selectedService.name,
+                bookingDate: selectedDate, timeSlot: selectedTimeSlot // Send UTC time slot
+            };
+            const serverFn = bookingOrWaitlistMode === 'waitlist' ? 'addToWaitlist' : 'submitBooking';
+            google.script.run
+                .withSuccessHandler(res => {
+                    showLoading(false);
+                    if (res.success) { showMessage('success', `${res.message}`); showServicesPage(); }
+                    else { showMessage('error', `Failed: ${res.message}`); if (res.message.includes("unavailable")) fetchAvailabilityForDate(); }
+                })
+                .withFailureHandler(err => { showLoading(false); showMessage('error', `Error: ${err.message || err}`); })
+                [serverFn](details);
+        }
+
+        // --- My Bookings ---
+        function loadUserBookings() { /* ... Check currentUser, use currentUser.email ... */
+            if (!currentUser) { 요소.userBookingsList.innerHTML = '<p>Sign in to see bookings.</p>'; return; }
+            showLoading(true); 요소.userBookingsList.innerHTML = '<p>Loading bookings...</p>';
+            google.script.run
+                .withSuccessHandler(res => {
+                    showLoading(false);
+                    if (res.success && res.bookings) renderUserBookings(res.bookings);
+                    else 요소.userBookingsList.innerHTML = `<p>${res.message || 'Could not load.'}</p>`;
+                })
+                .withFailureHandler(err => { showLoading(false); 요소.userBookingsList.innerHTML = `<p>Error: ${err.message || err}</p>`; })
+                .getUserBookings(currentUser.email);
+        }
+        function renderUserBookings(bookings) { /* ... Use formatTimeForDisplay ... */
+            요소.userBookingsList.innerHTML = '';
+            if (bookings.length === 0) { 요소.userBookingsList.innerHTML = '<p>No active bookings.</p>'; return; }
+            bookings.forEach(b => {
+                const item = document.createElement('div'); item.classList.add('booking-item');
+                const bookingDateObj = new Date(b.BookingDate + 'T00:00:00'); // For date display part
+                let statusHTML = b.Status;
+                if (b.Status === "Confirmed") {
+                    const slotDateTimeCheck = new Date(); // Create full date-time for comparison
+                    const [year, month, day] = b.BookingDate.split('-').map(Number);
+                    const [hourUTC, minuteUTC] = b.TimeSlot.split(':').map(Number);
+                    slotDateTimeCheck.setUTCFullYear(year, month - 1, day);
+                    slotDateTimeCheck.setUTCHours(hourUTC, minuteUTC, 0, 0);
+                    if (slotDateTimeCheck < new Date()) statusHTML = "Completed";
+                    else statusHTML = `Confirmed <button class="button-danger" data-booking-id="${b.BookingID}">Cancel</button>`;
+                } else if (b.Status === "User Cancelled") statusHTML = "Cancelled by You";
+                item.innerHTML = `<p><strong>Service:</strong> ${b.Service}</p>
+                    <p><strong>Date:</strong> ${bookingDateObj.toLocaleDateString('en-US', {year: 'numeric', month: 'long', day: 'numeric'})}</p>
+                    <p><strong>Time:</strong> ${formatTimeForDisplay(b.TimeSlot)}</p>
+                    <p><strong>Status:</strong> ${statusHTML}</p>
+                    <p><small>ID: ${b.BookingID}</small></p>`;
+                if (b.Status === "Confirmed" && !statusHTML.includes("Completed")) { // Add click listener only if cancel button exists
+                    item.querySelector('.button-danger').addEventListener('click', (e) => handleCancelBooking(e.target.dataset.bookingId));
+                }
+                요소.userBookingsList.appendChild(item);
+            });
+        }
+        function handleCancelBooking(bookingId) { /* ... Check currentUser, use currentUser.email ... */
+            if (!currentUser) { showMessage('error', 'Not signed in.'); return; }
+            if (!confirm(`Cancel booking ID: ${bookingId}?`)) return;
+            showLoading(true);
+            google.script.run
+                .withSuccessHandler(res => {
+                    showLoading(false);
+                    if (res.success) { showMessage('success', res.message); loadUserBookings(); }
+                    else showMessage('error', `Cancel failed: ${res.message}`);
+                })
+                .withFailureHandler(err => { showLoading(false); showMessage('error', `Cancel error: ${err.message || err}`); })
+                .cancelBooking(bookingId, currentUser.email);
+        }
+
+    </script>
+</body>
+</html>
