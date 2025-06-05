@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Room Booking</title>
-    <!-- Google Identity Services Library -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
         /* --- Global Styles (from previous answer, slightly adapted) --- */
@@ -162,7 +161,7 @@
     <!-- Screen 2: Schedule your service (Initially hidden) -->
     <div class="container schedule-page hidden" id="schedulePage">
         <header class="page-header with-back">
-             <span class="back-link" onclick="showServicesPage()">< Back</span>
+             <span class="back-link" onclick="showServicesPageFromSchedule()">< Back</span> <!-- Modified -->
             <h1 class="page-title" id="schedulePageTitle" style="margin-left: 20px;">Schedule your service</h1>
         </header>
         <p class="page-subtitle" style="text-align:center;">Check out our availability and book the date and time that works for you.</p>
@@ -201,7 +200,7 @@
     <!-- Screen 1: Booking Form (Initially hidden) -->
     <div class="container booking-form-page hidden" id="bookingFormPage">
         <header class="page-header">
-            <span class="back-link" onclick="showSchedulePage()">< Back</span>
+            <span class="back-link" onclick="showSchedulePageFromForm()">< Back</span> <!-- Modified -->
             <h1 class="page-title" id="bookingFormPageTitle" style="margin-left: 20px;">Booking Form</h1>
         </header>
         <div class="booking-form-layout">
@@ -229,17 +228,18 @@
 
     <script>
         // --- Global State ---
-        let currentUser = null; // Stores { email, name, picture } from GIS
-        const GOOGLE_CLIENT_ID = '174102089619-fve6mksim12dqj97j101q8o3kjcu3g62.apps.googleusercontent.com'; // <-- PASTE YOUR CLIENT ID HERE
+        let currentUser = null;
+        const GOOGLE_CLIENT_ID = '174102089619-fve6mksim12dqj97j101q8o3kjcu3g62.apps.googleusercontent.com'; // YOUR CLIENT ID
         let selectedService = { name: null, duration: null };
         let selectedDate = null; // YYYY-MM-DD
-        let selectedTimeSlot = null; // HH:MM (UTC from server, converted for display)
+        let selectedTimeSlot = null; // HH:MM (UTC from server)
         let currentCalendarDate = new Date();
         let availabilityData = { available: [], all: [] };
         let bookingOrWaitlistMode = 'booking';
+        let activeTimeoutId = null; // To manage client-side timeouts for server calls
 
-        // --- DOM Elements (condensed for brevity, ensure all are correct) ---
-        const 요소 = { // Using Korean for 'elements' as a short variable name example
+        // --- DOM Elements ---
+        const 요소 = {
             loading: document.getElementById('loadingSpinner'), messageArea: document.getElementById('messageArea'),
             auth: document.getElementById('authSection'), userProfile: document.getElementById('userProfileDisplay'),
             userPic: document.getElementById('userProfilePic'), userName: document.getElementById('userProfileName'),
@@ -267,12 +267,12 @@
 
         // --- Utility Functions ---
         function showLoading(show) { 요소.loading.classList.toggle('hidden', !show); }
-        function showMessage(type, text, duration = 5000) {
+        function showMessage(type, text, duration = 5000) { /* ... same ... */
             요소.messageArea.textContent = text; 요소.messageArea.className = `message-area message-${type}`;
             요소.messageArea.classList.remove('hidden');
             if (duration > 0) setTimeout(() => 요소.messageArea.classList.add('hidden'), duration);
         }
-        function switchView(viewName) {
+        function switchView(viewName) { /* ... same ... */
             ['auth', 'servicesPage', 'schedulePage', 'bookingFormPage'].forEach(id => {
                 const el = document.getElementById(id === 'auth' ? 'authSection' : id);
                 if(el) el.classList.add('hidden');
@@ -282,23 +282,17 @@
             window.scrollTo(0,0);
         }
         function formatDate(dateObj) { return dateObj ? `${dateObj.getFullYear()}-${('0'+(dateObj.getMonth()+1)).slice(-2)}-${('0'+dateObj.getDate()).slice(-2)}` : ''; }
-
-        // Convert UTC time string (HH:MM from server) to local display HH:MM AM/PM
-        function formatTimeForDisplay(utcTimeStr) {
+        function formatTimeForDisplay(utcTimeStr) { /* ... same ... */
             if (!utcTimeStr) return '';
             const [hoursUTC, minutesUTC] = utcTimeStr.split(':').map(Number);
-            // Create a date object for today, set UTC time, then get local time parts
-            const tempDate = new Date();
-            tempDate.setUTCHours(hoursUTC, minutesUTC, 0, 0);
-            const localHours = tempDate.getHours();
-            const localMinutes = tempDate.getMinutes();
-            const ampm = localHours >= 12 ? 'PM' : 'AM';
-            const displayHours = localHours % 12 || 12;
+            const tempDate = new Date(); tempDate.setUTCHours(hoursUTC, minutesUTC, 0, 0);
+            const localHours = tempDate.getHours(); const localMinutes = tempDate.getMinutes();
+            const ampm = localHours >= 12 ? 'PM' : 'AM'; const displayHours = localHours % 12 || 12;
             return `${displayHours}:${('0' + localMinutes).slice(-2)} ${ampm}`;
         }
-        // Convert local time selection back to UTC for server (assuming server works in UTC for slots)
-        // This is complex if slots are not aligned to UTC hours/half-hours.
-        // For simplicity, if server provides UTC slots, we just send back the selected UTC slot string.
+        function clearServerCallTimeout() {
+            if (activeTimeoutId) { clearTimeout(activeTimeoutId); activeTimeoutId = null; }
+        }
 
         // --- GIS Initialization & Handling ---
         window.onload = function () {
@@ -309,33 +303,48 @@
             }
             google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleSignIn });
             google.accounts.id.renderButton(요소.gisBtnContainer, { theme: "outline", size: "large", type: "standard", text: "signin_with" });
-            // google.accounts.id.prompt(); // Optional One Tap
         };
 
         function handleGoogleSignIn(response) {
-            showLoading(true);
+            console.log("handleGoogleSignIn called");
+            showLoading(true); // For verifyGoogleIdToken call
+            clearServerCallTimeout(); // Clear any previous timeout
+
+            activeTimeoutId = setTimeout(() => {
+                console.warn("verifyGoogleIdToken call timed out client-side.");
+                if (요소.loading.classList.contains('hidden')) return; // Already handled
+                showLoading(false);
+                showMessage('error', 'Sign-in verification is taking too long. Please try again.');
+                currentUser = null; updateUIAfterLogout();
+            }, 15000); // 15 seconds timeout for verification
+
             google.script.run
                 .withSuccessHandler(backendRes => {
-                    showLoading(false);
+                    clearServerCallTimeout();
                     if (backendRes.success && backendRes.user) {
                         currentUser = backendRes.user;
                         updateUIAfterLogin();
                         showMessage('success', `Signed in as ${currentUser.name || currentUser.email}`);
-                        showServicesPage();
+                        showLoading(false); // Turn off spinner for verifyGoogleIdToken
+                        showServicesPage(); // This will manage its own spinner for bookings
                     } else {
+                        showLoading(false); // Turn off spinner for verifyGoogleIdToken
+                        console.error("Sign-in backend failure:", backendRes.message);
                         showMessage('error', `Sign-in failed: ${backendRes.message || 'Unknown backend error'}`);
                         currentUser = null; updateUIAfterLogout();
                     }
                 })
                 .withFailureHandler(err => {
-                    showLoading(false);
+                    clearServerCallTimeout();
+                    showLoading(false); // Turn off spinner for verifyGoogleIdToken
+                    console.error("verifyGoogleIdToken failure handler:", err);
                     showMessage('error', `Sign-in verification error: ${err.message || String(err)}`);
                     currentUser = null; updateUIAfterLogout();
                 })
                 .verifyGoogleIdToken(response.credential);
         }
 
-        function updateUIAfterLogin() {
+        function updateUIAfterLogin() { /* ... same ... */
             if (currentUser) {
                 요소.userPic.src = currentUser.picture || 'https://via.placeholder.com/40';
                 요소.userName.textContent = currentUser.name || currentUser.email;
@@ -344,12 +353,11 @@
                 요소.gisBtnContainer.classList.add('hidden');
                 요소.emailInput.value = currentUser.email;
                 요소.loggedInEmailDisplay.textContent = `Logged in as: ${currentUser.email}`;
-                // Auth section remains visible for profile/logout
             }
         }
-        function handleSignOut() {
+        function handleSignOut() { /* ... same ... */
             if (currentUser && google.accounts && google.accounts.id) {
-                 google.accounts.id.disableAutoSelect(); // Important to prevent immediate re-login
+                 google.accounts.id.disableAutoSelect();
                  google.accounts.id.revoke(currentUser.email, done => { console.log('User revoked token.'); });
             }
             currentUser = null; updateUIAfterLogout();
@@ -357,31 +365,36 @@
             switchView('auth');
             요소.myBookingsSection.classList.add('hidden');
         }
-        function updateUIAfterLogout() {
+        function updateUIAfterLogout() { /* ... same ... */
             요소.userProfile.classList.add('hidden');
             요소.signInPrompt.classList.remove('hidden');
             요소.gisBtnContainer.classList.remove('hidden');
-            if(google.accounts && google.accounts.id) { // Re-render button if it was removed or state changed
-                요소.gisBtnContainer.innerHTML = ''; // Clear previous button
+            if(google.accounts && google.accounts.id) {
+                요소.gisBtnContainer.innerHTML = '';
                 google.accounts.id.renderButton(요소.gisBtnContainer, { theme: "outline", size: "large", type: "standard", text: "signin_with" });
             }
         }
 
         // --- Page Navigation & State Reset ---
         function showServicesPage() {
-            if (!currentUser) { switchView('auth'); return; }
+            if (!currentUser) {
+                switchView('auth');
+                // showLoading(false); // Spinner handled by verifyGoogleIdToken or its timeout
+                return;
+            }
             resetScheduleState();
             switchView('servicesPage');
-            loadUserBookings();
+            loadUserBookings(); // This function now includes showLoading management
             요소.myBookingsSection.classList.remove('hidden');
         }
-        function showSchedulePage() { // From booking form back or waitlist back
+        // Added distinct functions for back navigation to make it clearer
+        function showServicesPageFromSchedule() { showServicesPage(); }
+        function showSchedulePageFromForm() {
             if (!currentUser) { switchView('auth'); return; }
             switchView('schedulePage');
-            // Re-render time slots if availabilityData exists, otherwise it shows "select date"
             if (selectedDate && availabilityData.all.length > 0) renderTimeSlots();
         }
-        function resetScheduleState() {
+        function resetScheduleState() { /* ... same ... */
             selectedService = { name: null, duration: null }; selectedDate = null; selectedTimeSlot = null;
             availabilityData = { available: [], all: [] };
             요소.nextToBookingFormBtn.disabled = true; 요소.waitlistPromptSection.classList.add('hidden');
@@ -390,7 +403,7 @@
         }
 
         // --- Event Listeners (DOM Ready) ---
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', () => { /* ... same ... */
             요소.signOutBtn.addEventListener('click', handleSignOut);
             요소.bookServiceBtns.forEach(btn => btn.addEventListener('click', e => {
                 if (!currentUser) { showMessage('error', 'Please sign in to book.'); return; }
@@ -398,8 +411,7 @@
                 selectedService.name = card.dataset.serviceName;
                 selectedService.duration = card.dataset.serviceDuration;
                 요소.schedulePageTitle.textContent = `Schedule ${selectedService.name}`;
-                currentCalendarDate = new Date(); // Reset to current month
-                renderCalendar(); clearTimeSlots(); updateScheduleSummary();
+                currentCalendarDate = new Date(); renderCalendar(); clearTimeSlots(); updateScheduleSummary();
                 switchView('schedulePage');
             }));
             요소.prevMonthBtn.addEventListener('click', () => changeMonth(-1));
@@ -412,47 +424,31 @@
         });
 
         // --- Calendar Logic ---
-        function renderCalendar() { /* ... Same as previous complete HTML ... */
-            showLoading(true);
-            const year = currentCalendarDate.getFullYear();
-            const month = currentCalendarDate.getMonth();
+        function renderCalendar() { /* ... same ... */
+            showLoading(true); // For calendar rendering, typically fast
+            const year = currentCalendarDate.getFullYear(); const month = currentCalendarDate.getMonth();
             요소.monthYearLabel.textContent = `${currentCalendarDate.toLocaleString('default', { month: 'long' })} ${year}`;
             요소.calendarGrid.innerHTML = '';
-
             const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-            dayNames.forEach(name => {
-                const dayNameCell = document.createElement('div');
-                dayNameCell.classList.add('day-name'); dayNameCell.textContent = name;
-                요소.calendarGrid.appendChild(dayNameCell);
-            });
-
-            const daysInMonth = new Date(year, month + 1, 0).getDate();
-            const firstDayOfMonth = new Date(year, month, 1).getDay();
+            dayNames.forEach(name => { const dayNameCell = document.createElement('div'); dayNameCell.classList.add('day-name'); dayNameCell.textContent = name; 요소.calendarGrid.appendChild(dayNameCell); });
+            const daysInMonth = new Date(year, month + 1, 0).getDate(); const firstDayOfMonth = new Date(year, month, 1).getDay();
             const today = new Date(); today.setHours(0,0,0,0);
-
-            for (let i = 0; i < firstDayOfMonth; i++) {
-                const emptyCell = document.createElement('div');
-                emptyCell.classList.add('day-cell', 'empty'); 요소.calendarGrid.appendChild(emptyCell);
-            }
+            for (let i = 0; i < firstDayOfMonth; i++) { const emptyCell = document.createElement('div'); emptyCell.classList.add('day-cell', 'empty'); 요소.calendarGrid.appendChild(emptyCell); }
             for (let day = 1; day <= daysInMonth; day++) {
-                const cell = document.createElement('div'); cell.classList.add('day-cell');
-                cell.textContent = day; const cellDate = new Date(year, month, day); cellDate.setHours(0,0,0,0);
+                const cell = document.createElement('div'); cell.classList.add('day-cell'); cell.textContent = day;
+                const cellDate = new Date(year, month, day); cellDate.setHours(0,0,0,0);
                 if (cellDate < today) { cell.classList.add('past'); }
-                else {
-                    cell.dataset.date = formatDate(cellDate);
-                    if (selectedDate === cell.dataset.date) cell.classList.add('selected');
-                    cell.addEventListener('click', handleDateSelect);
-                }
+                else { cell.dataset.date = formatDate(cellDate); if (selectedDate === cell.dataset.date) cell.classList.add('selected'); cell.addEventListener('click', handleDateSelect); }
                 요소.calendarGrid.appendChild(cell);
             }
             showLoading(false);
         }
-        function changeMonth(offset) { /* ... Same as previous complete HTML ... */
+        function changeMonth(offset) { /* ... same ... */
             currentCalendarDate.setMonth(currentCalendarDate.getMonth() + offset);
             selectedDate = null; selectedTimeSlot = null; clearTimeSlots(); updateScheduleSummary();
             renderCalendar(); 요소.nextToBookingFormBtn.disabled = true; 요소.waitlistPromptSection.classList.add('hidden');
         }
-        function handleDateSelect(event) { /* ... Same as previous complete HTML ... */
+        function handleDateSelect(event) { /* ... same ... */
             const clickedCell = event.target;
             if (clickedCell.classList.contains('past') || clickedCell.classList.contains('empty')) return;
             selectedDate = clickedCell.dataset.date; selectedTimeSlot = null;
@@ -464,45 +460,55 @@
         }
 
         // --- Time Slot Logic ---
-        function fetchAvailabilityForDate() { /* ... Same, ensure server call is correct ... */
-             if (!selectedDate || !selectedService.name) return; showLoading(true);
-            const dateObj = new Date(selectedDate + 'T00:00:00'); // Use T00:00:00 to avoid timezone issues if server expects just date
+        function fetchAvailabilityForDate() {
+             if (!selectedDate || !selectedService.name) return;
+             showLoading(true); // For getAvailability call
+             clearServerCallTimeout();
+
+            const dateObj = new Date(selectedDate + 'T00:00:00');
             요소.availabilityHeader.textContent = `Availability for ${dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}`;
             요소.timeSlotsGrid.innerHTML = '<p>Loading slots...</p>';
+
+            activeTimeoutId = setTimeout(() => {
+                console.warn("getAvailability call timed out client-side.");
+                if (요소.loading.classList.contains('hidden')) return;
+                showLoading(false);
+                요소.timeSlotsGrid.innerHTML = '<p>Fetching slots took too long. Please try again or select another date.</p>';
+                showMessage('error', 'Error fetching availability: Timed out.');
+            }, 15000); // 15s timeout for availability
+
             google.script.run
                 .withSuccessHandler(response => {
+                    clearServerCallTimeout();
                     showLoading(false);
                     if (response.error) { showMessage('error', response.error); availabilityData = { available: [], all: [] }; }
-                    else { availabilityData = response; } // response is {available: [], all: []}
+                    else { availabilityData = response; }
                     renderTimeSlots();
                 })
-                .withFailureHandler(err => { showLoading(false); showMessage('error', `Availability fetch error: ${err.message || err}`); availabilityData = { available: [], all: [] }; renderTimeSlots();})
+                .withFailureHandler(err => {
+                    clearServerCallTimeout();
+                    showLoading(false);
+                    showMessage('error', `Availability fetch error: ${err.message || String(err)}`);
+                    availabilityData = { available: [], all: [] }; renderTimeSlots();
+                })
                 .getAvailability(selectedService.name, selectedDate);
         }
-        function renderTimeSlots() { /* ... Same, but use formatTimeForDisplay ... */
+        function renderTimeSlots() { /* ... same ... */
             요소.timeSlotsGrid.innerHTML = '';
             if (!selectedDate) { 요소.timeSlotsGrid.innerHTML = '<p>Please select a date.</p>'; return; }
             if (availabilityData.all.length === 0) { 요소.timeSlotsGrid.innerHTML = '<p>No slots configured for this day.</p>'; return; }
-
             const now = new Date(); const todayDateStr = formatDate(now);
-
             availabilityData.all.forEach(utcSlotStr => {
-                const slotButton = document.createElement('button');
-                slotButton.classList.add('time-slot-button');
-                slotButton.textContent = formatTimeForDisplay(utcSlotStr); // Display in local time
-                slotButton.dataset.utcTime = utcSlotStr; // Store the original UTC time from server
-
+                const slotButton = document.createElement('button'); slotButton.classList.add('time-slot-button');
+                slotButton.textContent = formatTimeForDisplay(utcSlotStr); slotButton.dataset.utcTime = utcSlotStr;
                 const isAvailable = availabilityData.available.includes(utcSlotStr);
                 if (!isAvailable) slotButton.disabled = true;
-
-                if (selectedDate === todayDateStr) { // Disable past slots for today
+                if (selectedDate === todayDateStr) {
                     const [slotHourUTC, slotMinuteUTC] = utcSlotStr.split(':').map(Number);
-                    const slotDateTime = new Date();
-                    slotDateTime.setUTCFullYear(parseInt(selectedDate.substring(0,4)), parseInt(selectedDate.substring(5,7))-1, parseInt(selectedDate.substring(8,10)));
+                    const slotDateTime = new Date(); slotDateTime.setUTCFullYear(parseInt(selectedDate.substring(0,4)), parseInt(selectedDate.substring(5,7))-1, parseInt(selectedDate.substring(8,10)));
                     slotDateTime.setUTCHours(slotHourUTC, slotMinuteUTC, 0, 0);
                     if (slotDateTime < now) slotButton.disabled = true;
                 }
-
                 if (selectedTimeSlot === utcSlotStr) slotButton.classList.add('selected');
                 slotButton.addEventListener('click', handleTimeSlotSelect);
                 요소.timeSlotsGrid.appendChild(slotButton);
@@ -511,133 +517,180 @@
                  요소.timeSlotsGrid.innerHTML = '<p>No available slots for this date. Try the waitlist if a specific slot is desired.</p>';
             }
         }
-        function handleTimeSlotSelect(event) { /* ... Uses dataset.utcTime ... */
-            const clickedButton = event.target;
-            const timeToSelect = clickedButton.dataset.utcTime;
-
-            if (clickedButton.disabled && !availabilityData.available.includes(timeToSelect)) { // Booked slot, offer waitlist
-                selectedTimeSlot = timeToSelect;
-                요소.nextToBookingFormBtn.disabled = true; 요소.waitlistPromptSection.classList.remove('hidden');
-            } else if (!clickedButton.disabled) { // Available slot
-                selectedTimeSlot = timeToSelect;
-                요소.nextToBookingFormBtn.disabled = false; 요소.waitlistPromptSection.classList.add('hidden');
-            } else return; // Past slot or otherwise unselectable
-
+        function handleTimeSlotSelect(event) { /* ... same ... */
+            const clickedButton = event.target; const timeToSelect = clickedButton.dataset.utcTime;
+            if (clickedButton.disabled && !availabilityData.available.includes(timeToSelect)) {
+                selectedTimeSlot = timeToSelect; 요소.nextToBookingFormBtn.disabled = true; 요소.waitlistPromptSection.classList.remove('hidden');
+            } else if (!clickedButton.disabled) {
+                selectedTimeSlot = timeToSelect; 요소.nextToBookingFormBtn.disabled = false; 요소.waitlistPromptSection.classList.add('hidden');
+            } else return;
             const prevSelected = 요소.timeSlotsGrid.querySelector('.time-slot-button.selected');
             if (prevSelected) prevSelected.classList.remove('selected');
-            clickedButton.classList.add('selected');
-            updateScheduleSummary();
+            clickedButton.classList.add('selected'); updateScheduleSummary();
         }
-        function clearTimeSlots() { /* ... Same ... */
+        function clearTimeSlots() { /* ... same ... */
             요소.availabilityHeader.textContent = 'Availability for ...';
             요소.timeSlotsGrid.innerHTML = '<p>Please select a date to see availability.</p>';
             availabilityData = { available: [], all: [] };
         }
 
         // --- Summary Update ---
-        function updateScheduleSummary() { /* ... Use formatTimeForDisplay for selectedTimeSlot ... */
+        function updateScheduleSummary() { /* ... same ... */
             요소.summaryServiceName.textContent = selectedService.name || 'Service';
             요소.summaryServiceDetail1.textContent = selectedService.name || 'Detail';
             요소.summaryServiceDuration.textContent = selectedService.duration || 'Duration';
-            if (selectedDate && selectedTimeSlot) {
-                const dateObj = new Date(selectedDate + 'T00:00:00'); // Use T00:00 to avoid TZ interpretation here
-                요소.summarySelectedDateTime.textContent = `${dateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} at ${formatTimeForDisplay(selectedTimeSlot)}`;
-            } else if (selectedDate) {
-                const dateObj = new Date(selectedDate + 'T00:00:00');
-                요소.summarySelectedDateTime.textContent = `${dateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}, select time`;
-            } else { 요소.summarySelectedDateTime.textContent = 'Select date and time'; }
+            if (selectedDate && selectedTimeSlot) { const dateObj = new Date(selectedDate + 'T00:00:00'); 요소.summarySelectedDateTime.textContent = `${dateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} at ${formatTimeForDisplay(selectedTimeSlot)}`; }
+            else if (selectedDate) { const dateObj = new Date(selectedDate + 'T00:00:00'); 요소.summarySelectedDateTime.textContent = `${dateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}, select time`; }
+            else { 요소.summarySelectedDateTime.textContent = 'Select date and time'; }
         }
 
         // --- Booking Form Logic ---
-        function showBookingForm() { /* ... Check currentUser ... */
-            if (!currentUser || !selectedService.name || !selectedDate || !selectedTimeSlot) {
-                showMessage('error', 'Please complete service, date, and time selection.'); return;
-            }
-            switchView('bookingFormPage');
-            요소.emailInput.value = currentUser.email;
-            요소.loggedInEmailDisplay.textContent = `Logged in as: ${currentUser.email}`;
+        function showBookingForm() { /* ... same ... */
+            if (!currentUser || !selectedService.name || !selectedDate || !selectedTimeSlot) { showMessage('error', 'Please complete service, date, and time selection.'); return; }
+            switchView('bookingFormPage'); 요소.emailInput.value = currentUser.email; 요소.loggedInEmailDisplay.textContent = `Logged in as: ${currentUser.email}`;
             요소.bookingFormPageTitle.textContent = bookingOrWaitlistMode === 'waitlist' ? 'Join Waitlist Form' : 'Booking Form';
-            요소.finalSummaryServiceName.textContent = selectedService.name;
-            const dateObj = new Date(selectedDate + 'T00:00:00');
+            요소.finalSummaryServiceName.textContent = selectedService.name; const dateObj = new Date(selectedDate + 'T00:00:00');
             요소.finalSummarySelectedDateTime.textContent = `${dateObj.toLocaleDateString('en-US', {month: 'long', day: 'numeric', year: 'numeric'})} at ${formatTimeForDisplay(selectedTimeSlot)}`;
-            요소.finalSummaryServiceDetail1.textContent = selectedService.name;
-            요소.finalSummaryServiceDuration.textContent = selectedService.duration;
+            요소.finalSummaryServiceDetail1.textContent = selectedService.name; 요소.finalSummaryServiceDuration.textContent = selectedService.duration;
             요소.confirmBookingBtn.classList.toggle('hidden', bookingOrWaitlistMode === 'waitlist');
             요소.confirmWaitlistBtn.classList.toggle('hidden', bookingOrWaitlistMode === 'booking');
-            요소.bookingForm.reset(); 요소.emailInput.value = currentUser.email; // Re-set email
+            요소.bookingForm.reset(); 요소.emailInput.value = currentUser.email;
         }
-        function handleFormSubmission() { /* ... Check currentUser, use currentUser.email ... */
+        function handleFormSubmission() { /* ... same, with timeout for server call ... */
             if (!currentUser) { showMessage('error', 'Not signed in.'); return; }
             if (!요소.bookingForm.checkValidity()) { 요소.bookingForm.reportValidity(); return; }
-            showLoading(true);
-            const details = {
+            showLoading(true); // For submitBooking/addToWaitlist call
+            clearServerCallTimeout();
+
+            const details = { /* ... */
                 userEmail: currentUser.email, teamHeadName: 요소.teamHeadNameInput.value,
                 phoneNumber: 요소.phoneNumberInput.value, participants: 요소.participantsInput.value,
                 paragraph: 요소.paragraphInput.value, service: selectedService.name,
-                bookingDate: selectedDate, timeSlot: selectedTimeSlot // Send UTC time slot
+                bookingDate: selectedDate, timeSlot: selectedTimeSlot
             };
             const serverFn = bookingOrWaitlistMode === 'waitlist' ? 'addToWaitlist' : 'submitBooking';
+
+            activeTimeoutId = setTimeout(() => {
+                console.warn(`${serverFn} call timed out client-side.`);
+                if (요소.loading.classList.contains('hidden')) return;
+                showLoading(false);
+                showMessage('error', `${bookingOrWaitlistMode === 'waitlist' ? 'Waitlist' : 'Booking'} submission is taking too long. Please try again.`);
+            }, 20000); // 20s timeout
+
             google.script.run
                 .withSuccessHandler(res => {
-                    showLoading(false);
+                    clearServerCallTimeout(); showLoading(false);
                     if (res.success) { showMessage('success', `${res.message}`); showServicesPage(); }
-                    else { showMessage('error', `Failed: ${res.message}`); if (res.message.includes("unavailable")) fetchAvailabilityForDate(); }
+                    else { showMessage('error', `Failed: ${res.message}`); if (res.message && res.message.includes("unavailable")) fetchAvailabilityForDate(); }
                 })
-                .withFailureHandler(err => { showLoading(false); showMessage('error', `Error: ${err.message || err}`); })
+                .withFailureHandler(err => {
+                    clearServerCallTimeout(); showLoading(false);
+                    showMessage('error', `Error: ${err.message || String(err)}`);
+                })
                 [serverFn](details);
         }
 
         // --- My Bookings ---
-        function loadUserBookings() { /* ... Check currentUser, use currentUser.email ... */
+        function loadUserBookings() {
             if (!currentUser) { 요소.userBookingsList.innerHTML = '<p>Sign in to see bookings.</p>'; return; }
-            showLoading(true); 요소.userBookingsList.innerHTML = '<p>Loading bookings...</p>';
+            showLoading(true); // For getUserBookings call
+            clearServerCallTimeout();
+            요소.userBookingsList.innerHTML = '<p>Loading your bookings...</p>';
+
+            activeTimeoutId = setTimeout(() => {
+                console.warn("getUserBookings call timed out client-side.");
+                if (요소.loading.classList.contains('hidden')) return; // Already handled
+                showLoading(false);
+                요소.userBookingsList.innerHTML = '<p>Loading your bookings took too long. Please try again later or check your connection.</p>';
+                showMessage('error', 'Error loading bookings: Timed out.');
+            }, 20000); // 20 seconds timeout
+
             google.script.run
                 .withSuccessHandler(res => {
+                    clearServerCallTimeout();
                     showLoading(false);
-                    if (res.success && res.bookings) renderUserBookings(res.bookings);
-                    else 요소.userBookingsList.innerHTML = `<p>${res.message || 'Could not load.'}</p>`;
+                    if (res.success && res.bookings) {
+                        renderUserBookings(res.bookings);
+                    } else {
+                        요소.userBookingsList.innerHTML = `<p>${res.message || 'Could not load your bookings.'}</p>`;
+                        if(res.message) showMessage('info', `Bookings: ${res.message}`);
+                    }
                 })
-                .withFailureHandler(err => { showLoading(false); 요소.userBookingsList.innerHTML = `<p>Error: ${err.message || err}</p>`; })
+                .withFailureHandler(err => {
+                    clearServerCallTimeout();
+                    showLoading(false);
+                    요소.userBookingsList.innerHTML = `<p>Error loading bookings: ${err.message || String(err)}</p>`;
+                    showMessage('error', `Bookings Error: ${err.message || String(err)}`);
+                })
                 .getUserBookings(currentUser.email);
         }
-        function renderUserBookings(bookings) { /* ... Use formatTimeForDisplay ... */
-            요소.userBookingsList.innerHTML = '';
-            if (bookings.length === 0) { 요소.userBookingsList.innerHTML = '<p>No active bookings.</p>'; return; }
-            bookings.forEach(b => {
-                const item = document.createElement('div'); item.classList.add('booking-item');
-                const bookingDateObj = new Date(b.BookingDate + 'T00:00:00'); // For date display part
-                let statusHTML = b.Status;
-                if (b.Status === "Confirmed") {
-                    const slotDateTimeCheck = new Date(); // Create full date-time for comparison
-                    const [year, month, day] = b.BookingDate.split('-').map(Number);
-                    const [hourUTC, minuteUTC] = b.TimeSlot.split(':').map(Number);
-                    slotDateTimeCheck.setUTCFullYear(year, month - 1, day);
-                    slotDateTimeCheck.setUTCHours(hourUTC, minuteUTC, 0, 0);
-                    if (slotDateTimeCheck < new Date()) statusHTML = "Completed";
-                    else statusHTML = `Confirmed <button class="button-danger" data-booking-id="${b.BookingID}">Cancel</button>`;
-                } else if (b.Status === "User Cancelled") statusHTML = "Cancelled by You";
-                item.innerHTML = `<p><strong>Service:</strong> ${b.Service}</p>
-                    <p><strong>Date:</strong> ${bookingDateObj.toLocaleDateString('en-US', {year: 'numeric', month: 'long', day: 'numeric'})}</p>
-                    <p><strong>Time:</strong> ${formatTimeForDisplay(b.TimeSlot)}</p>
-                    <p><strong>Status:</strong> ${statusHTML}</p>
-                    <p><small>ID: ${b.BookingID}</small></p>`;
-                if (b.Status === "Confirmed" && !statusHTML.includes("Completed")) { // Add click listener only if cancel button exists
-                    item.querySelector('.button-danger').addEventListener('click', (e) => handleCancelBooking(e.target.dataset.bookingId));
-                }
-                요소.userBookingsList.appendChild(item);
-            });
+        function renderUserBookings(bookings) {
+            try {
+                요소.userBookingsList.innerHTML = '';
+                if (bookings.length === 0) { 요소.userBookingsList.innerHTML = '<p>No active bookings found.</p>'; return; }
+                bookings.forEach(b => {
+                    const item = document.createElement('div'); item.classList.add('booking-item');
+                    // Ensure BookingDate and TimeSlot exist before trying to format
+                    const bookingDateStr = b.BookingDate ? new Date(b.BookingDate + 'T00:00:00').toLocaleDateString('en-US', {year: 'numeric', month: 'long', day: 'numeric'}) : 'N/A';
+                    const timeSlotDisplay = b.TimeSlot ? formatTimeForDisplay(b.TimeSlot) : 'N/A';
+
+                    let statusHTML = b.Status || "Unknown";
+                    if (b.Status === "Confirmed") {
+                        const slotDateTimeCheck = new Date();
+                        if (b.BookingDate && b.TimeSlot) {
+                            const [year, month, day] = b.BookingDate.split('-').map(Number);
+                            const [hourUTC, minuteUTC] = b.TimeSlot.split(':').map(Number);
+                            slotDateTimeCheck.setUTCFullYear(year, month - 1, day);
+                            slotDateTimeCheck.setUTCHours(hourUTC, minuteUTC, 0, 0);
+                            if (slotDateTimeCheck < new Date()) statusHTML = "Completed";
+                            else statusHTML = `Confirmed <button class="button-danger" data-booking-id="${b.BookingID}">Cancel</button>`;
+                        } else {
+                             statusHTML = `Confirmed (date/time info missing)`; // Handle missing data
+                        }
+                    } else if (b.Status === "User Cancelled") statusHTML = "Cancelled by You";
+
+                    item.innerHTML = `<p><strong>Service:</strong> ${b.Service || 'N/A'}</p>
+                        <p><strong>Date:</strong> ${bookingDateStr}</p>
+                        <p><strong>Time:</strong> ${timeSlotDisplay}</p>
+                        <p><strong>Status:</strong> ${statusHTML}</p>
+                        <p><small>ID: ${b.BookingID || 'N/A'}</small></p>`;
+                    if (b.Status === "Confirmed" && statusHTML.includes("Cancel</button>")) {
+                        const cancelButton = item.querySelector('.button-danger');
+                        if (cancelButton) {
+                            cancelButton.addEventListener('click', (e) => handleCancelBooking(e.target.dataset.bookingId));
+                        }
+                    }
+                    요소.userBookingsList.appendChild(item);
+                });
+            } catch (e) {
+                console.error("Error rendering user bookings:", e);
+                요소.userBookingsList.innerHTML = "<p>Error displaying your bookings. Please try refreshing.</p>";
+                showMessage('error', 'Could not display bookings properly.');
+            }
         }
-        function handleCancelBooking(bookingId) { /* ... Check currentUser, use currentUser.email ... */
+        function handleCancelBooking(bookingId) { /* ... same, with timeout ... */
             if (!currentUser) { showMessage('error', 'Not signed in.'); return; }
             if (!confirm(`Cancel booking ID: ${bookingId}?`)) return;
-            showLoading(true);
+            showLoading(true); // For cancelBooking call
+            clearServerCallTimeout();
+
+            activeTimeoutId = setTimeout(() => {
+                console.warn("cancelBooking call timed out client-side.");
+                if (요소.loading.classList.contains('hidden')) return;
+                showLoading(false);
+                showMessage('error', 'Cancellation request is taking too long.');
+            }, 15000); // 15s timeout
+
             google.script.run
                 .withSuccessHandler(res => {
-                    showLoading(false);
-                    if (res.success) { showMessage('success', res.message); loadUserBookings(); }
+                    clearServerCallTimeout(); showLoading(false);
+                    if (res.success) { showMessage('success', res.message); loadUserBookings(); } // Refresh bookings list
                     else showMessage('error', `Cancel failed: ${res.message}`);
                 })
-                .withFailureHandler(err => { showLoading(false); showMessage('error', `Cancel error: ${err.message || err}`); })
+                .withFailureHandler(err => {
+                    clearServerCallTimeout(); showLoading(false);
+                    showMessage('error', `Cancel error: ${err.message || String(err)}`);
+                })
                 .cancelBooking(bookingId, currentUser.email);
         }
 
